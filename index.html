@@ -21,7 +21,6 @@
     .btn{border:1px solid #e5e7eb;background:#fff;border-radius:14px;padding:10px 14px;font-weight:600;cursor:pointer}
     .btn.primary{background:#0369d9;border-color:#0369d9;color:#fff}
     .btn:disabled{opacity:.6;cursor:not-allowed}
-    .result{margin-top:10px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:12px;padding:10px 12px;font-weight:700}
     .pin{position:absolute;top:-6px;z-index:20;display:flex;flex-direction:column;align-items:center}
     .pin-tip{width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-bottom:22px solid #111827;filter:drop-shadow(0 2px 2px rgba(0,0,0,.2))}
     .pin-stem{width:4px;height:24px;background:#111827;border-bottom-left-radius:4px;border-bottom-right-radius:4px}
@@ -42,8 +41,7 @@
           <button id="btnReset" class="btn">重置角度</button>
           <button id="btnDemo" class="btn">一鍵填入範例</button>
         </div>
-        <div id="result" class="result" style="display:none;"></div>
-        <p class="muted" style="margin-top:8px">小提示：修改上方文字後，直接再按「開始旋轉」即可重新抽選。</p>
+        <!-- 已移除結果顯示區 -->
       </div>
 
       <!-- 轉盤區 -->
@@ -79,7 +77,6 @@
   const btnDemo = document.getElementById("btnDemo");
   const wheel = document.getElementById("wheel");
   const svg = document.getElementById("svg");
-  const result = document.getElementById("result");
 
   // --- UI: 六個輸入框 ---
   function renderInputs() {
@@ -157,7 +154,6 @@
   function spin() {
     if (state.spinning) return;
     state.spinning = true; btnSpin.disabled = true; btnReset.disabled = true; btnDemo.disabled = true;
-    result.style.display = "none";
 
     const targetIdx = Math.floor(Math.random() * N);
     const targetCenter = (targetIdx * SLICE) + SLICE/2; // 0..360
@@ -169,17 +165,14 @@
 
     const finalRotation = state.rotation + extraSpins*360 + delta;
     wheel.style.transition = `transform 4500ms cubic-bezier(0.12, 0.11, 0.08, 1)`;
-    // 讓瀏覽器先套用 transition
     requestAnimationFrame(() => wheel.style.transform = `rotate(${finalRotation}deg)`);
 
     setTimeout(() => {
       state.rotation = finalRotation;
       state.spinning = false;
-      state.resultIdx = targetIdx;
-      wheel.style.transition = ""; // 清掉 transition 以免下次卡頓
+      state.resultIdx = targetIdx; // 仍保留資料，但不顯示
+      wheel.style.transition = "";
       btnSpin.disabled = false; btnReset.disabled = false; btnDemo.disabled = false;
-      result.textContent = `結果：${state.labels[targetIdx] || `選項 ${targetIdx+1}`}`;
-      result.style.display = "block";
     }, 4550);
   }
 
@@ -189,13 +182,12 @@
     wheel.style.transition = "transform 250ms ease";
     wheel.style.transform = "rotate(0deg)";
     setTimeout(() => (wheel.style.transition = ""), 260);
-    result.style.display = "none";
   }
 
   function fillDemo() {
     if (state.spinning) return;
     state.labels = ["炸雞","披薩","壽司","拉麵","火鍋","便當"];
-    renderInputs(); drawWheel(); result.style.display = "none";
+    renderInputs(); drawWheel();
   }
 
   // 綁定
