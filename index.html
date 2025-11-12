@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>六選項幸運轉盤</title>
+  <style>
+    :root { --bg:#f7fafc; --ink:#0f172a; --muted:#64748b; }
+    html,body{height:100%} body{margin:0;background:linear-gradient(#fff,#f4f6f9);}
+    .wrap{min-height:100%;display:grid;place-items:center;padding:24px}
+    .app{max-width:1100px;width:100%;display:grid;grid-template-columns:1fr;gap:24px}
+    @media (min-width:900px){ .app{grid-template-columns:1fr 1fr} }
+
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 8px 24px rgba(0,0,0,.06);padding:20px}
+    .title{font-size:22px;font-weight:800;letter-spacing:.3px;margin:0 0 8px}
+    .muted{color:var(--muted);font-size:14px;margin:0 0 14px}
+    .row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+    .tag{font:600 12px/1 system-ui;padding:6px 10px;background:#f1f5f9;border-radius:999px;min-width:34px;text-align:center}
+    .input{flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;font-size:14px}
+    .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+    .btn{border:1px solid #e5e7eb;background:#fff;border-radius:14px;padding:10px 14px;font-weight:600;cursor:pointer}
+    .btn.primary{background:#0369d9;border-color:#0369d9;color:#fff}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .result{margin-top:10px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:12px;padding:10px 12px;font-weight:700}
+    .pin{position:absolute;top:-6px;z-index:20;display:flex;flex-direction:column;align-items:center}
+    .pin-tip{width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-bottom:22px solid #111827;filter:drop-shadow(0 2px 2px rgba(0,0,0,.2))}
+    .pin-stem{width:4px;height:24px;background:#111827;border-bottom-left-radius:4px;border-bottom-right-radius:4px}
+    .wheel{position:relative;width:min(88vw,520px);height:min(88vw,520px);border-radius:50%;border:10px solid #fff;box-shadow:0 10px 30px rgba(0,0,0,.12);overflow:hidden;background:#fff}
+    .center-dot{fill:#fff;stroke:#e2e8f0;stroke-width:1.2}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="app">
+      <!-- 控制區 -->
+      <div class="card">
+        <h1 class="title">六選項幸運轉盤</h1>
+        <p class="muted">輸入六個選項，按「開始旋轉」，讓命運替你決定！</p>
+        <div id="inputs"></div>
+        <div class="btns">
+          <button id="btnSpin" class="btn primary">開始旋轉</button>
+          <button id="btnReset" class="btn">重置角度</button>
+          <button id="btnDemo" class="btn">一鍵填入範例</button>
+        </div>
+        <div id="result" class="result" style="display:none;"></div>
+        <p class="muted" style="margin-top:8px">小提示：修改上方文字後，直接再按「開始旋轉」即可重新抽選。</p>
+      </div>
+
+      <!-- 轉盤區 -->
+      <div class="card" style="display:flex;align-items:center;justify-content:center">
+        <div style="position:relative;display:grid;place-items:center;">
+          <div class="pin">
+            <div class="pin-tip"></div>
+            <div class="pin-stem"></div>
+          </div>
+
+          <div id="wheel" class="wheel" aria-label="抽獎轉盤">
+            <svg id="svg" viewBox="0 0 100 100" width="100%" height="100%"></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const COLORS = ["#fde68a","#86efac","#93c5fd","#fca5a5","#c4b5fd","#f9a8d4"];
+  const N = 6, SLICE = 360 / N;
+  const state = {
+    labels: ["選項 1","選項 2","選項 3","選項 4","選項 5","選項 6"],
+    rotation: 0,
+    spinning: false,
+    resultIdx: null
+  };
+
+  const inputs = document.getElementById("inputs");
+  const btnSpin = document.getElementById("btnSpin");
+  const btnReset = document.getElementById("btnReset");
+  const btnDemo = document.getElementById("btnDemo");
+  const wheel = document.getElementById("wheel");
+  const svg = document.getElementById("svg");
+  const result = document.getElementById("result");
+
+  // --- UI: 六個輸入框 ---
+  function renderInputs() {
+    inputs.innerHTML = "";
+    for (let i = 0; i < N; i++) {
+      const row = document.createElement("div"); row.className = "row";
+      const tag = document.createElement("span"); tag.className="tag"; tag.textContent = String(i+1);
+      const input = document.createElement("input");
+      input.className="input"; input.maxLength = 24; input.value = state.labels[i];
+      input.placeholder = `選項 ${i+1}`;
+      input.addEventListener("input", e => {
+        state.labels[i] = e.target.value;
+        drawWheel(); // 即時更新輪上的文字
+      });
+      row.appendChild(tag); row.appendChild(input);
+      inputs.appendChild(row);
+    }
+  }
+
+  // --- 幾何工具 ---
+  const toRad = deg => (deg * Math.PI) / 180;
+  function polar(cx, cy, r, angle) {
+    const a = toRad(angle - 90); // 12 點鐘方向為 0°
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  }
+  function wedgePath(cx, cy, r, a0, a1) {
+    const s = polar(cx, cy, r, a1);
+    const e = polar(cx, cy, r, a0);
+    const large = (a1 - a0) <= 180 ? 0 : 1;
+    return `M ${cx} ${cy} L ${s.x} ${s.y} A ${r} ${r} 0 ${large} 0 ${e.x} ${e.y} Z`;
+  }
+
+  // --- 畫輪盤 ---
+  function drawWheel() {
+    svg.innerHTML = "";
+    const slices = Array.from({length: N}, (_, i) => {
+      const start = i * SLICE, end = start + SLICE, center = start + SLICE/2;
+      return { i, start, end, center, color: COLORS[i % COLORS.length], label: state.labels[i] || `選項 ${i+1}` };
+    });
+
+    // 扇形
+    for (const s of slices) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+      path.setAttribute("d", wedgePath(50,50,48, s.start, s.end));
+      path.setAttribute("fill", s.color);
+      path.setAttribute("stroke", "#fff");
+      path.setAttribute("stroke-width", "0.6");
+      svg.appendChild(path);
+    }
+    // 文字
+    for (const s of slices) {
+      const pos = polar(50,50,33, s.center);
+      const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+      const t = document.createElementNS("http://www.w3.org/2000/svg","text");
+      t.setAttribute("x", pos.x); t.setAttribute("y", pos.y);
+      t.setAttribute("font-size","4"); t.setAttribute("text-anchor","middle");
+      t.setAttribute("dominant-baseline","middle"); t.setAttribute("fill","#0f172a");
+      t.setAttribute("transform", `rotate(${s.center} ${pos.x} ${pos.y})`);
+      t.textContent = s.label;
+      g.appendChild(t); svg.appendChild(g);
+    }
+    // 中心
+    const dot = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    dot.setAttribute("cx","50"); dot.setAttribute("cy","50"); dot.setAttribute("r","10");
+    dot.setAttribute("class","center-dot");
+    svg.appendChild(dot);
+    const txt = document.createElementNS("http://www.w3.org/2000/svg","text");
+    txt.setAttribute("x","50"); txt.setAttribute("y","50");
+    txt.setAttribute("font-size","4"); txt.setAttribute("text-anchor","middle");
+    txt.setAttribute("dominant-baseline","middle"); txt.setAttribute("fill","#334155");
+    txt.textContent = "Spin"; svg.appendChild(txt);
+  }
+
+  // --- 旋轉 ---
+  function spin() {
+    if (state.spinning) return;
+    state.spinning = true; btnSpin.disabled = true; btnReset.disabled = true; btnDemo.disabled = true;
+    result.style.display = "none";
+
+    const targetIdx = Math.floor(Math.random() * N);
+    const targetCenter = (targetIdx * SLICE) + SLICE/2; // 0..360
+    const extraSpins = 5 + Math.floor(Math.random()*4); // 5~8 圈
+
+    const current = ((state.rotation % 360) + 360) % 360;
+    let delta = targetCenter - current;
+    if (delta < 0) delta += 360;
+
+    const finalRotation = state.rotation + extraSpins*360 + delta;
+    wheel.style.transition = `transform 4500ms cubic-bezier(0.12, 0.11, 0.08, 1)`;
+    // 讓瀏覽器先套用 transition
+    requestAnimationFrame(() => wheel.style.transform = `rotate(${finalRotation}deg)`);
+
+    setTimeout(() => {
+      state.rotation = finalRotation;
+      state.spinning = false;
+      state.resultIdx = targetIdx;
+      wheel.style.transition = ""; // 清掉 transition 以免下次卡頓
+      btnSpin.disabled = false; btnReset.disabled = false; btnDemo.disabled = false;
+      result.textContent = `結果：${state.labels[targetIdx] || `選項 ${targetIdx+1}`}`;
+      result.style.display = "block";
+    }, 4550);
+  }
+
+  function resetWheel() {
+    if (state.spinning) return;
+    state.rotation = 0;
+    wheel.style.transition = "transform 250ms ease";
+    wheel.style.transform = "rotate(0deg)";
+    setTimeout(() => (wheel.style.transition = ""), 260);
+    result.style.display = "none";
+  }
+
+  function fillDemo() {
+    if (state.spinning) return;
+    state.labels = ["炸雞","披薩","壽司","拉麵","火鍋","便當"];
+    renderInputs(); drawWheel(); result.style.display = "none";
+  }
+
+  // 綁定
+  btnSpin.addEventListener("click", spin);
+  btnReset.addEventListener("click", resetWheel);
+  btnDemo.addEventListener("click", fillDemo);
+
+  // 初始畫面
+  renderInputs(); drawWheel();
+})();
+</script>
+</body>
+</html>
